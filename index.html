@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timeline de Atores - Filmes</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Timeline de Atores</h1>
+            <p>Digite o nome de um filme para ver a timeline dos atores principais</p>
+        </header>
+
+        <div class="search-section">
+            <div class="search-container">
+                <input type="text" id="movieInput" placeholder="Digite o nome do filme..." />
+                <button id="searchButton">Buscar</button>
+            </div>
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Buscando informações...</p>
+            </div>
+        </div>
+
+        <div id="results" class="results-section hidden">
+            <div id="movieInfo" class="movie-info"></div>
+            <div id="timeline" class="timeline-container"></div>
+        </div>
+
+        <div id="error" class="error-message hidden"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
