@@ -32,7 +32,7 @@ class MovieTimelineApp {
         this.hideResults();
         
         try {
-            const movieData = await this.getMovieDataFromGroq(movieName);
+            const movieData = await this.getMovieData(movieName);
             this.displayResults(movieData);
         } catch (error) {
             console.error('Erro ao buscar dados do filme:', error);
@@ -42,7 +42,7 @@ class MovieTimelineApp {
         }
     }
     
-    async getMovieDataFromGroq(movieName) {
+    async getMovieData(movieName) {
         const prompt = `
         Preciso de informações sobre o filme "${movieName}". Por favor, retorne um JSON válido com as seguintes informações:
         
@@ -66,11 +66,12 @@ class MovieTimelineApp {
         Retorne APENAS o JSON, sem texto adicional.
         `;
         
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const PROXY_URL = 'https://castraceai.dmp-muniz.workers.dev';
+        
+        const response = await fetch(PROXY_URL, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer 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`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 model: 'llama3-8b-8192',
@@ -86,13 +87,14 @@ class MovieTimelineApp {
         });
         
         if (!response.ok) {
-            throw new Error(`Erro na API: ${response.status}`);
+            const errorText = await response.text();
+            throw new Error(`Erro no proxy (${response.status}): ${errorText}`);
         }
         
         const data = await response.json();
         const content = data.choices[0].message.content.trim();
         
-        // Remove possíveis marcadores de código markdown
+        // Processar resposta da API
         const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '');
         
         try {
@@ -100,23 +102,39 @@ class MovieTimelineApp {
         } catch (parseError) {
             console.error('Erro ao fazer parse do JSON:', parseError);
             console.error('Conteúdo recebido:', content);
-            throw new Error('Resposta da API não está em formato JSON válido');
+            
+            // Tentar extrair JSON manualmente se falhar
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    return JSON.parse(jsonMatch[0]);
+                } catch (secondTryError) {
+                    throw new Error('Resposta da API não está em formato JSON válido');
+                }
+            }
+            
+            throw new Error('Resposta da API não contém JSON válido');
         }
     }
     
     displayResults(movieData) {
+        if (!movieData || !movieData.title) {
+            this.showError('Dados do filme não encontrados na resposta');
+            return;
+        }
+        
         this.displayMovieInfo(movieData);
-        this.displayTimeline(movieData.actors);
+        this.displayTimeline(movieData.actors || []);
         this.showResults();
     }
     
     displayMovieInfo(movieData) {
         this.movieInfo.innerHTML = `
-            <div class="movie-title">${movieData.title} (${movieData.year})</div>
+            <div class="movie-title">${movieData.title} (${movieData.year || 'Ano desconhecido'})</div>
             <div class="movie-details">
-                <p><strong>Diretor:</strong> ${movieData.director}</p>
-                <p><strong>Gênero:</strong> ${movieData.genre}</p>
-                <p><strong>Sinopse:</strong> ${movieData.plot}</p>
+                ${movieData.director ? `<p><strong>Diretor:</strong> ${movieData.director}</p>` : ''}
+                ${movieData.genre ? `<p><strong>Gênero:</strong> ${movieData.genre}</p>` : ''}
+                ${movieData.plot ? `<p><strong>Sinopse:</strong> ${movieData.plot}</p>` : ''}
             </div>
         `;
     }
@@ -127,20 +145,30 @@ class MovieTimelineApp {
             return;
         }
         
-        // Ordena os atores por data de nascimento
-        const sortedActors = actors
-            .filter(actor => actor.birthDate)
-            .sort((a, b) => new Date(a.birthDate) - new Date(b.birthDate));
+        // Filtrar e ordenar atores por data de nascimento
+        const validActors = actors.filter(actor => actor.birthDate && actor.name);
+        if (validActors.length === 0) {
+            this.timeline.innerHTML = '<p>Datas de nascimento não disponíveis para os atores.</p>';
+            return;
+        }
+        
+        const sortedActors = validActors.sort(
+            (a, b) => new Date(a.birthDate) - new Date(b.birthDate)
+        );
         
         let timelineHTML = '<h3 class="timeline-title">Timeline dos Atores Principais</h3><div class="timeline">';
         
         sortedActors.forEach((actor, index) => {
             const isLeft = index % 2 === 0;
-            const birthYear = new Date(actor.birthDate).getFullYear();
+            const birthDate = new Date(actor.birthDate);
+            const birthYear = birthDate.getFullYear();
             const deathYear = actor.deathDate ? new Date(actor.deathDate).getFullYear() : null;
             
+            // Calcular idade com precisão
             const age = this.calculateAge(actor.birthDate, actor.deathDate);
-            const ageText = deathYear ? `Viveu ${age} anos` : `${age} anos`;
+            const ageText = deathYear ? 
+                `Viveu ${age} anos` : 
+                `${age} anos`;
             
             const dateText = deathYear ? 
                 `${birthYear} - ${deathYear}` : 
@@ -163,17 +191,24 @@ class MovieTimelineApp {
     }
     
     calculateAge(birthDate, deathDate) {
-        const birth = new Date(birthDate);
-        const end = deathDate ? new Date(deathDate) : new Date();
-        
-        let age = end.getFullYear() - birth.getFullYear();
-        const monthDiff = end.getMonth() - birth.getMonth();
-        
-        if (monthDiff < 0 || (monthDiff === 0 && end.getDate() < birth.getDate())) {
-            age--;
+        try {
+            const birth = new Date(birthDate);
+            const end = deathDate ? new Date(deathDate) : new Date();
+            
+            if (isNaN(birth.getTime())) return '?';
+            
+            let age = end.getFullYear() - birth.getFullYear();
+            const monthDiff = end.getMonth() - birth.getMonth();
+            
+            if (monthDiff < 0 || (monthDiff === 0 && end.getDate() < birth.getDate())) {
+                age--;
+            }
+            
+            return age;
+        } catch (e) {
+            console.error('Erro ao calcular idade:', e);
+            return '?';
         }
-        
-        return age;
     }
     
     showLoading() {
@@ -207,8 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
     new MovieTimelineApp();
 });
 
-// Função para limpar a chave da API (útil para desenvolvimento)
+// Função para limpar a chave da API (mantida para contexto histórico)
 function clearAPIKey() {
-    alert('Aplicação configurada para usar API do Groq Cloud.');
+    alert('Aplicação configurada para usar API do Groq Cloud via proxy seguro.');
 }
-
