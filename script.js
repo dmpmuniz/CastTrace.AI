@@ -1,5 +1,6 @@
 class MovieTimelineApp {
     constructor() {
+        // Elementos da UI
         this.movieInput = document.getElementById('movieInput');
         this.searchButton = document.getElementById('searchButton');
         this.loading = document.getElementById('loading');
@@ -8,15 +9,17 @@ class MovieTimelineApp {
         this.timeline = document.getElementById('timeline');
         this.error = document.getElementById('error');
         
+        // Configuração do proxy (atualize com seu URL real)
+        this.PROXY_URL = "https://castraceai.dmp-muniz.workers.dev";
+        
+        // Inicializa eventos
         this.initEventListeners();
     }
     
     initEventListeners() {
         this.searchButton.addEventListener('click', () => this.searchMovie());
         this.movieInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                this.searchMovie();
-            }
+            if (e.key === 'Enter') this.searchMovie();
         });
     }
     
@@ -35,8 +38,8 @@ class MovieTimelineApp {
             const movieData = await this.getMovieData(movieName);
             this.displayResults(movieData);
         } catch (error) {
-            console.error('Erro ao buscar dados do filme:', error);
-            this.showError('Erro ao buscar informações do filme. Tente novamente.');
+            console.error('Erro na busca:', error);
+            this.showError(error.message || 'Erro desconhecido ao buscar filme');
         } finally {
             this.hideLoading();
         }
@@ -44,82 +47,68 @@ class MovieTimelineApp {
     
     async getMovieData(movieName) {
         const prompt = `
-        Preciso de informações sobre o filme "${movieName}". Por favor, retorne um JSON válido com as seguintes informações:
-        
+        Preciso de informações sobre o filme "${movieName}". Retorne APENAS um JSON válido com:
         {
-            "title": "título do filme",
-            "year": "ano de lançamento",
-            "director": "diretor",
-            "genre": "gênero",
-            "plot": "sinopse breve",
+            "title": "Título oficial",
+            "year": "Ano de lançamento",
+            "director": "Nome do diretor",
+            "genre": "Gênero principal",
+            "plot": "Sinopse breve",
             "actors": [
                 {
-                    "name": "nome do ator",
-                    "birthDate": "data de nascimento no formato YYYY-MM-DD",
-                    "deathDate": "data de morte no formato YYYY-MM-DD ou null se ainda vivo",
-                    "character": "personagem interpretado"
+                    "name": "Nome completo",
+                    "birthDate": "YYYY-MM-DD",
+                    "deathDate": "YYYY-MM-DD ou null",
+                    "character": "Nome do personagem"
                 }
             ]
         }
-        
-        Inclua apenas os atores principais (máximo 8). Se não souber alguma data exata, use null. 
-        Retorne APENAS o JSON, sem texto adicional.
+        Inclua apenas atores principais (máximo 5). Se não souber dados exatos, use null.
         `;
         
-        const PROXY_URL = 'https://castraceai.dmp-muniz.workers.dev';
-        
-        const response = await fetch(PROXY_URL, {
+        const response = await fetch(this.PROXY_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
+            headers: { 
+                'Content-Type': 'application/json',
+                'Origin': 'https://dmpmuniz.github.io' // Seu domínio GitHub Pages
             },
             body: JSON.stringify({
                 model: 'llama3-8b-8192',
-                messages: [
-                    {
-                        role: 'user',
-                        content: prompt
-                    }
-                ],
+                messages: [{ role: 'user', content: prompt }],
                 temperature: 0.3,
                 max_tokens: 2000
             })
         });
         
+        // Tratamento de erros HTTP
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Erro no proxy (${response.status}): ${errorText}`);
+            let errorMsg = `Erro ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorMsg = errorData.error?.message || errorMsg;
+            } catch {}
+            throw new Error(errorMsg);
         }
         
+        // Processamento da resposta
         const data = await response.json();
         const content = data.choices[0].message.content.trim();
         
-        // Processar resposta da API
-        const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        // Extração do JSON (robusto a markdown)
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('Resposta da API não contém JSON válido');
         
         try {
-            return JSON.parse(jsonContent);
+            return JSON.parse(jsonMatch[0]);
         } catch (parseError) {
-            console.error('Erro ao fazer parse do JSON:', parseError);
-            console.error('Conteúdo recebido:', content);
-            
-            // Tentar extrair JSON manualmente se falhar
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                try {
-                    return JSON.parse(jsonMatch[0]);
-                } catch (secondTryError) {
-                    throw new Error('Resposta da API não está em formato JSON válido');
-                }
-            }
-            
-            throw new Error('Resposta da API não contém JSON válido');
+            console.error('Parse error:', parseError, 'Content:', content);
+            throw new Error('Erro ao interpretar dados do filme');
         }
     }
     
     displayResults(movieData) {
         if (!movieData || !movieData.title) {
-            this.showError('Dados do filme não encontrados na resposta');
+            this.showError('Filme não encontrado ou dados incompletos');
             return;
         }
         
@@ -130,7 +119,10 @@ class MovieTimelineApp {
     
     displayMovieInfo(movieData) {
         this.movieInfo.innerHTML = `
-            <div class="movie-title">${movieData.title} (${movieData.year || 'Ano desconhecido'})</div>
+            <div class="movie-header">
+                <h2 class="movie-title">${movieData.title}</h2>
+                <div class="movie-year">${movieData.year || 'Ano desconhecido'}</div>
+            </div>
             <div class="movie-details">
                 ${movieData.director ? `<p><strong>Diretor:</strong> ${movieData.director}</p>` : ''}
                 ${movieData.genre ? `<p><strong>Gênero:</strong> ${movieData.genre}</p>` : ''}
@@ -141,46 +133,43 @@ class MovieTimelineApp {
     
     displayTimeline(actors) {
         if (!actors || actors.length === 0) {
-            this.timeline.innerHTML = '<p>Nenhum ator encontrado para este filme.</p>';
+            this.timeline.innerHTML = '<div class="no-actors">Nenhum ator principal encontrado</div>';
             return;
         }
         
-        // Filtrar e ordenar atores por data de nascimento
-        const validActors = actors.filter(actor => actor.birthDate && actor.name);
+        // Processar atores com dados válidos
+        const validActors = actors
+            .filter(a => a.name && a.birthDate)
+            .sort((a, b) => new Date(a.birthDate) - new Date(b.birthDate));
+        
         if (validActors.length === 0) {
-            this.timeline.innerHTML = '<p>Datas de nascimento não disponíveis para os atores.</p>';
+            this.timeline.innerHTML = '<div class="no-actors">Datas de nascimento indisponíveis</div>';
             return;
         }
         
-        const sortedActors = validActors.sort(
-            (a, b) => new Date(a.birthDate) - new Date(b.birthDate)
-        );
+        let timelineHTML = `
+            <h3 class="timeline-title">Linha do Tempo dos Atores</h3>
+            <div class="timeline-container">
+                <div class="timeline-line"></div>
+        `;
         
-        let timelineHTML = '<h3 class="timeline-title">Timeline dos Atores Principais</h3><div class="timeline">';
-        
-        sortedActors.forEach((actor, index) => {
-            const isLeft = index % 2 === 0;
+        validActors.forEach((actor, index) => {
             const birthDate = new Date(actor.birthDate);
             const birthYear = birthDate.getFullYear();
             const deathYear = actor.deathDate ? new Date(actor.deathDate).getFullYear() : null;
-            
-            // Calcular idade com precisão
             const age = this.calculateAge(actor.birthDate, actor.deathDate);
-            const ageText = deathYear ? 
-                `Viveu ${age} anos` : 
-                `${age} anos`;
-            
-            const dateText = deathYear ? 
-                `${birthYear} - ${deathYear}` : 
-                `Nascido em ${birthYear}`;
+            const positionClass = index % 2 === 0 ? 'left' : 'right';
             
             timelineHTML += `
-                <div class="timeline-item ${isLeft ? 'left' : 'right'}">
+                <div class="timeline-item ${positionClass}">
+                    <div class="timeline-dot"></div>
                     <div class="timeline-content">
                         <div class="actor-name">${actor.name}</div>
-                        <div class="actor-dates">${dateText}</div>
-                        <div class="actor-age">${ageText}</div>
-                        ${actor.character ? `<p><strong>Personagem:</strong> ${actor.character}</p>` : ''}
+                        <div class="actor-dates">
+                            ${birthYear}${deathYear ? ` — ${deathYear}` : ''}
+                            ${age !== null ? ` (${deathYear ? `Viveu ${age} anos` : `${age} anos`})` : ''}
+                        </div>
+                        ${actor.character ? `<div class="actor-character"><strong>Personagem:</strong> ${actor.character}</div>` : ''}
                     </div>
                 </div>
             `;
@@ -195,24 +184,25 @@ class MovieTimelineApp {
             const birth = new Date(birthDate);
             const end = deathDate ? new Date(deathDate) : new Date();
             
-            if (isNaN(birth.getTime())) return '?';
+            if (isNaN(birth)) return null;
             
             let age = end.getFullYear() - birth.getFullYear();
-            const monthDiff = end.getMonth() - birth.getMonth();
+            const m = end.getMonth() - birth.getMonth();
             
-            if (monthDiff < 0 || (monthDiff === 0 && end.getDate() < birth.getDate())) {
+            if (m < 0 || (m === 0 && end.getDate() < birth.getDate())) {
                 age--;
             }
             
             return age;
-        } catch (e) {
-            console.error('Erro ao calcular idade:', e);
-            return '?';
+        } catch {
+            return null;
         }
     }
     
+    // Métodos de utilidade UI
     showLoading() {
         this.loading.classList.remove('hidden');
+        this.loading.textContent = 'Buscando informações...';
     }
     
     hideLoading() {
@@ -237,12 +227,7 @@ class MovieTimelineApp {
     }
 }
 
-// Inicializa a aplicação quando o DOM estiver carregado
+// Inicialização da aplicação
 document.addEventListener('DOMContentLoaded', () => {
     new MovieTimelineApp();
 });
-
-// Função para limpar a chave da API (mantida para contexto histórico)
-function clearAPIKey() {
-    alert('Aplicação configurada para usar API do Groq Cloud via proxy seguro.');
-}
