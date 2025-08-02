@@ -14,10 +14,26 @@
         </header>
 
         <div class="search-section">
-            <div class="search-container">
+            <div class="search-tabs">
+                <button id="nameTab" class="tab-button active">Buscar por Nome</button>
+                <button id="plotTab" class="tab-button">Buscar por Sinopse</button>
+            </div>
+            
+            <div id="nameSearch" class="search-container">
                 <input type="text" id="movieInput" placeholder="Digite o nome do filme..." />
                 <button id="searchButton">Buscar</button>
             </div>
+            
+            <div id="plotSearch" class="search-container hidden">
+                <textarea id="plotInput" placeholder="Digite a sinopse do filme..." rows="3"></textarea>
+                <button id="plotSearchButton">Buscar Filmes</button>
+            </div>
+            
+            <div id="suggestions" class="suggestions-container hidden">
+                <h3>Sugestões de Filmes:</h3>
+                <div id="suggestionsList" class="suggestions-list"></div>
+            </div>
+            
             <div id="loading" class="loading hidden">
                 <div class="spinner"></div>
                 <p>Buscando informações...</p>
